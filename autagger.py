@@ -27,7 +27,7 @@ for arg in sys.argv:
             album = d['album']
             discnumber = d.get ('discnumber')
             
-            """one folder up means its disc folder (if any)"""
+            """ one folder up means its disc folder (if any) """
             disctotal = len ([dir for dir in os.listdir (os.path.join (dirpath, '..'))])
             if not discnumber:
                 discnumber = disctotal = '1'
