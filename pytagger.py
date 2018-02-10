@@ -72,7 +72,6 @@ for k in kwargs:
     if not kwargs[k]:
         del real_kwargs[k]
 
-file = tagger.Tagger ()
-file.set_files (*args)
-file.set_tags (**real_kwargs)
-file.apply (**option_kwargs)
+for filename in args:
+    tager = tagger.Tagger (filename, **real_kwargs)
+    tager.apply ()

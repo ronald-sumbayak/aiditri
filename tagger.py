@@ -1,17 +1,11 @@
 import os
-import stat
 import pprint
+import stat
 
-import mutagen.easyid3
-import mutagen.id3
-import mutagen.mp3
-import sys
+from mutagen import File
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3, ID3NoHeaderError
 from mutagen.id3._frames import APIC
-
-m = mutagen.id3.ID3 ('01 Did You Miss Me_.mp3')
-m.setall ('APIC', [APIC (encoding = 3, mime = 'image/png', type = 3, data = open ('1.png', 'rb').read ())])
-m.save (v2_version = 3)
-
 
 help_text = (
     '\n'
@@ -41,89 +35,100 @@ tag_list = [
 
 class UnknownOptionError (Exception):
     def __init__ (self, option):
-        super (UnknownOptionError, self).__init__ ('pytagger: UnknownOptionError \'%s\'' % option)
+        super ().__init__ ('tagger: UnknownOptionError \'%s\'' % option)
+
+
+class UnknownTagError (Exception):
+    def __init__ (self, tag):
+        super ().__init__ ('tagger: UnknownTagError \'%s\'' % tag)
 
 
 class Tagger (object):
-    artwork = None
-    files = []
-    tags = {}
+    __filename: str = None
+    __artwork: str = None
+    __file_easy: EasyID3 = None
+    __file: ID3 = None
+    __tags: dict = {}
+    __available_tags: list = [tag for _, tag in tag_list]
     
-    def open (self, filename):
+    def __init__ (self, filename, artwork=None, **kwargs):
+        self.__filename = filename
+        self.__artwork = artwork
+        for tag in kwargs:
+            if tag not in self.__available_tags:
+                raise UnknownTagError (tag)
+        self.open ()
+    
+    def open (self):
         try:
-            file = mutagen.easyid3.EasyID3 (filename)
-        except mutagen.id3.ID3NoHeaderError:
-            file = mutagen.File (filename, easy = True)
-            file.add_tags ()
-            file.save ()
-        return file
+            file_easy = EasyID3 (self.__filename)
+        except ID3NoHeaderError:
+            file_easy = File (self.__filename, easy = True)
+            file_easy.add_tags ()
+            file_easy.save ()
+        self.__file_easy = file_easy
+        self.__file = ID3 (self.__filename)
     
     def print_tags (self):
-        for f in self.files:
-            file = self.open (f)
-            print ()
-            print ('File: \'' + f + '\'')
-            print (file.pprint ())
+        print ()
+        print ('File: \'' + self.__filename + '\'')
+        print (self.__file_easy.pprint ())
     
-    def retrieve_artwork (self, filename):
-        m = mutagen.id3.ID3 (filename)
-        apic = m.getall ('APIC')
+    def extract_artwork (self):
+        apic = self.__file.getall ('APIC')
         for i in range (len (apic)):
-            with open (filename + ' (%d).png' % i, 'wb') as fuck:
-                fuck.write (m.getall ('APIC')[0].data)
+            with open (self.__filename + ' (%d).png' % i, 'wb') as fuck:
+                fuck.write (self.__file.getall ('APIC')[0].data)
     
-    def set_files (self, *args):
-        self.files = args
+    def clear_tags (self):
+        self.__file_easy.clear ()
     
-    def set_tags (self, **kwargs):
-        self.tags = kwargs
+    def set (self, tag, value):
+        if tag not in self.__available_tags:
+            raise UnknownTagError (tag)
+        self.__tags[tag] = value
     
     def set_artwork (self, artwork):
-        self.artwork = artwork
+        self.__artwork = artwork
     
-    def apply (self, clear_old=False, verbose=False):
-        for f in self.files:
-            if verbose:
-                print ()
-                print ('==========================================================================')
-                print (f)
-            
-            file = self.open (f)
-            self.retrieve_artwork (f)
-            
-            if verbose:
-                print ('-------------------------------- ORIGINAL --------------------------------')
-                print (file.pprint ())
-                print ('--------------------------------   TAGS   --------------------------------')
-                pprint.pprint (self.tags)
-            
-            if clear_old:
-                file.clear ()
-            
-            file.update (self.tags)
-            os.chmod (f, stat.S_IWRITE)
-            file.save (v1 = 2, v2_version = 3)
-            
-            if verbose:
-                print ('--------------------------------  RESULT  --------------------------------')
-                print (file.pprint ())
-            
-            if self.artwork:
-                if verbose:
-                    print ('artwork=' + self.artwork)
-                
-                m = mutagen.id3.ID3 (f)
-                m.setall ('APIC', [APIC (
-                    encoding = 3,
-                    mime = 'image/png',
-                    type = 3,
-                    data = open (self.artwork, 'rb').read ())])
-                m.save (v2_version = 3)
-            
-            if verbose:
-                print ('--------------------------------------------------------------------------')
+    def apply (self, verbose=False):
+        if verbose:
+            print ()
+            print ('==========================================================================')
+            print (self.__filename)
         
-        self.artwork = None
-        self.files = []
-        self.tags = []
-        self.verbose = False
+        if verbose:
+            print ('-------------------------------- ORIGINAL --------------------------------')
+            print (self.__file_easy.pprint ())
+            print ('--------------------------------   TAGS   --------------------------------')
+            pprint.pprint (self.__tags)
+        
+        self.__file_easy.update (self.__tags)
+        
+        if self.__artwork:
+            self.__file.setall ('APIC', [APIC (
+                encoding = 3,
+                mime = 'image/png',
+                type = 3,
+                data = open (self.__artwork, 'rb').read ())])
+
+        os.chmod (self.__filename, stat.S_IWRITE)  # set writable
+        self.__file_easy.save (v1 = 2, v2_version = 3)
+        self.__file.save (v2_version = 3)
+        
+        if verbose:
+            print ('--------------------------------  RESULT  --------------------------------')
+            print (self.__file_easy.pprint ())
+        
+        if self.__artwork:
+            if verbose:
+                print ('artwork=' + self.__artwork)
+        
+        if verbose:
+            print ('--------------------------------------------------------------------------')
+
+        self.__filename = None
+        self.__artwork = None
+        self.__file_easy = None
+        self.__file = None
+        self.__tags = {}
